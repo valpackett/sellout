@@ -1,0 +1,31 @@
+[project]
+name = "sellout"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Greg V", email = "greg@unrelenting.technology"},
+]
+dependencies = [
+    "uvicorn~=0.14",
+    "starlette~=0.15",
+    "mangum~=0.11",
+    "httpx~=0.18",
+    "gidgethub~=5.0",
+    "tomlkit~=0.7",
+    "argon2-cffi~=20.1",
+    "aiodynamo~=21.6",
+    "aioaws~=0.9",
+]
+requires-python = ">=3.8"
+dynamic = ["classifiers"]
+license = {text = "Unlicense"}
+
+[project.urls]
+homepage = "https://github.com/unrelentingtech/sellout"
+
+[build-system]
+requires = ["pdm-pep517"]
+build-backend = "pdm.pep517.api"
+
+[tool]
+[tool.pdm]
