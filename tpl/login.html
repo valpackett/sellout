@@ -1,0 +1,26 @@
+{% extends "layout.html" %}
+{% block title %}log in / {{ super() }}{% endblock %}
+
+{% block main %}
+	<main class="window login-window">
+	  <div class="title-bar">
+	    <div class="title-bar-text">Administrator login</div>
+	  </div>
+		<form method="POST" action="" class="window-body">
+			<input hidden name="redir" type="hidden" value="{{ redir }}" /><br>
+			<div class="field-row">
+				<label for="pw-input">Password</label>
+				<input id="pw-input" name="pw" type="password" placeholder="magic string" />
+			</div><br>
+			{% if error %}
+				<div class="login-error">
+					<p>{{ error }}</p>
+				</div>
+			{% endif %}
+			<button type="submit">Destructive action</button><br><br>
+		</form>
+		<div class="status-bar">
+			<p class="status-bar-field">Powered by Sellout Engine</p>
+		</div>
+	</main>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "layout.html" %}
+{% block title %}dashboard / {{ super() }}{% endblock %}
+
+{% block main %}
+	<main>
+		<div class="window">
+		  <div class="title-bar">
+		    <div class="title-bar-text">Sellout Engine</div>
+		  </div>
+			<form method="POST" action="{{ url_for("logout") }}" class="window-body">
+				<button type="submit">Log out</button><br><br>
+			</form>
+		</div>
+	</main>
+{% endblock %}

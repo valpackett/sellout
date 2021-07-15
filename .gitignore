@@ -2,3 +2,4 @@ __pypackages__/
 dist/
 *.egg-info
 .pdm.toml
+.env
