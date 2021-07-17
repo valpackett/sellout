@@ -1,0 +1,39 @@
+{% extends "layout.html" %}
+{% block title %}authorize / {{ super() }}{% endblock %}
+
+{% block main %}
+	<main class="window login-window">
+	  <div class="title-bar">
+	    <div class="title-bar-text">Authorization request</div>
+	  </div>
+		<form method="POST" action="{{ url_for("allow") }}" class="window-body">
+			<input hidden name="state" type="hidden" value="{{ request.query_params.state }}" />
+			<input hidden name="redirect_uri" type="hidden" value="{{ request.query_params.redirect_uri }}" />
+			<input hidden name="client_id" type="hidden" value="{{ request.query_params.client_id }}" />
+			<input hidden name="code_challenge" type="hidden" value="{{ request.query_params.code_challenge }}" />
+			<input hidden name="code_challenge_method" type="hidden" value="{{ request.query_params.code_challenge_method }}" />
+			<p>If you allow, the application</p>
+			<p><a href="{{ request.query_params.client_id }}">{{ request.query_params.client_id }}</a></p>
+			<p>will be given the following permissions:</p>
+			{% for scope, desc in scope_info.items() %}
+				<div class="field-row">
+					<input id="checkbox-scope-{{ scope }}" name="scope:{{ scope }}" type="checkbox" {% if scope in req_scopes %}checked{% endif %} />
+					<label for="checkbox-scope-{{ scope }}"><strong>{{ scope }}</strong> — {{ desc }}</label>
+				</div><br>
+			{% endfor %}
+			<p>
+				You will be redirected to the following address:
+				<pre>{{ request.query_params.redirect_uri }}</pre>
+			</p>
+			{% if request.query_params.code_challenge_method != "S256" %}
+				<p>
+					Security warning: the client did not use PKCE S256 for this request.
+				</p>
+			{% endif %}
+			<button type="submit">Yeah, sure, whatever</button><br><br>
+		</form>
+		<div class="status-bar">
+			<p class="status-bar-field">Powered by Sellout Engine</p>
+		</div>
+	</main>
+{% endblock %}

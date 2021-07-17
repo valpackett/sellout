@@ -1,0 +1,14 @@
+{% extends "layout.html" %}
+{% block title %}error / {{ super() }}{% endblock %}
+
+{% block main %}
+	<main class="window login-window">
+	  <div class="title-bar">
+	    <div class="title-bar-text">Authorization Request Error</div>
+	  </div>
+		<div class="window-body h-card">
+			<p>The IndieAuth client you're trying to authorize probably screwed something up.</p>
+			<p>Error: {{ err }}</p>
+		</div>
+	</main>
+{% endblock %}

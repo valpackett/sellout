@@ -1,0 +1,13 @@
+{% extends "layout.html" %}
+{% block title %}test page / {{ super() }}{% endblock %}
+
+{% block main %}
+	<main class="window login-window">
+	  <div class="title-bar">
+	    <div class="title-bar-text">Sellout Engine Test Page</div>
+	  </div>
+		<div class="window-body h-card">
+			<p>This is a <span class="p-name">test page</span>. It should not be visible on any real website. If you see it there, your frontend server is misconfigured.</p>
+		</div>
+	</main>
+{% endblock %}
