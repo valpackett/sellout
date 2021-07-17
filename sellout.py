@@ -163,7 +163,7 @@ class Login(HTTPEndpoint):
 
     async def post(self, request: Request):
         form = await request.form()
-        next = form.get("next", "/")
+        next = form.get("next", "/.sellout/")
         if request.user.is_authenticated:
             return RedirectResponse(url=next, status_code=303)
         error = "Something error??"
@@ -374,25 +374,20 @@ app = Starlette(
     debug=True,
     routes=[
         Route("/", testpage),
-        Mount(
-            "/.sellout",
-            routes=[
-                Route("/", dashboard),
-                Route("/login", Login, name="login"),
-                Route("/authz", Authorization, name="authz"),
-                Route("/token", Token, name="token"),
-                Route("/allow", allow, name="allow", methods=["POST"]),
-                Route("/logout", logout, name="logout", methods=["POST"]),
-                Mount("/static", StaticFiles(directory="static"), name="static"),
-            ],
-        ),
+        Route("/.sellout/", dashboard),
+        Route("/.sellout/login", Login, name="login"),
+        Route("/.sellout/authz", Authorization, name="authz"),
+        Route("/.sellout/token", Token, name="token"),
+        Route("/.sellout/allow", allow, name="allow", methods=["POST"]),
+        Route("/.sellout/logout", logout, name="logout", methods=["POST"]),
+        Mount("/.sellout/static", StaticFiles(directory="static"), name="static"),
     ],
     middleware=[
         Middleware(WeirdnessMiddleware),
         Middleware(
             SessionMiddleware,
             secret_key=session_secret,
-            session_cookie="__Secure-wheeeee",
+            session_cookie="__Host-wheeeee",
             same_site="strict",
             https_only=True,
         ),
