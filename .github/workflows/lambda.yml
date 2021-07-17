@@ -1,0 +1,25 @@
+name: Build/deploy Lambda
+
+on:
+  push:
+    branches:
+    - trunk
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    container: lambci/lambda:build-python3.8
+    steps:
+    - uses: actions/checkout@v1
+    - run: pipx install pdm
+    - run: pdm remove uvicorn
+    - run: pdm install
+    - run: zip -9 -y -r lambda.zip .
+    - uses: stcalica/update-lambda@0.0.2
+      with:
+        package: lambda.zip
+        function-name: ${{ secrets.FUNCTION_NAME }}
+        AWS_REGION: ${{ secrets.AWS_REGION }}
+        AWS_SECRET_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        # the IAM user for this only needs lambda:UpdateFunctionCode on this function

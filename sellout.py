@@ -28,6 +28,8 @@ from starlette.staticfiles import StaticFiles
 from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from aiodynamo.client import Client as DbClient
 from aiodynamo.credentials import Credentials as DbCreds
 from aiodynamo.errors import ItemNotFound
@@ -46,16 +48,48 @@ SCOPE_INFO = {
 }
 
 load_dotenv()
-session_secret = os.environ["SESSION_SECRET"]
-admin_pw_hash = os.environ["PASSWORD_HASH"]
 aws_region = os.environ["AWS_REGION"]
 db_prefix = os.environ["DYNAMO_PREFIX"]
+session_secret = os.environ.get("SESSION_SECRET")
+admin_pw_hash = os.environ.get("PASSWORD_HASH")
+if not session_secret or not admin_pw_hash:
+    # when running on Lambda (boto3 installed already there)
+    import boto3
+
+    ssm = boto3.client("ssm")
+    ssm_prefix = os.environ["SSM_PREFIX"]
+    session_secret = ssm.get_parameter(
+        Name=ssm_prefix + "/sessionsecret", WithDecryption=True
+    )["Parameter"]["Value"]
+    admin_pw_hash = ssm.get_parameter(
+        Name=ssm_prefix + "/passwordhash", WithDecryption=True
+    )["Parameter"]["Value"]
+
 hasher = PasswordHasher()
 tpl = Jinja2Templates(directory="tpl")
 
 
 def db_table(h, tbl):
     return DbClient(HTTPX(h), DbCreds.auto(), aws_region).table(db_prefix + tbl)
+
+
+# CloudFront -> API Gateway problems :/
+class WeirdnessMiddleware(object):
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            headers = MutableHeaders(scope=scope)
+            print(headers)
+            xhost = headers.get("x-forwarded-host")
+            xauth = headers.get("x-authorization")
+            if xhost:
+                headers["host"] = xhost
+            if xauth:
+                headers["authorization"] = xauth
+            print(headers)
+        await self.app(scope, receive, send)
 
 
 # https://github.com/encode/starlette/pull/920
@@ -354,6 +388,7 @@ app = Starlette(
         ),
     ],
     middleware=[
+        Middleware(WeirdnessMiddleware),
         Middleware(
             SessionMiddleware,
             secret_key=session_secret,
