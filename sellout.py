@@ -29,7 +29,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.datastructures import Headers, MutableHeaders
+from starlette.datastructures import Headers, MutableHeaders, FormData
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from aiodynamo.client import Client as DbClient
 from aiodynamo.credentials import Credentials as DbCreds
@@ -138,7 +138,10 @@ class TokenAndSessionBackend(AuthenticationBackend):
                         data = await db_table(h, "auth").get_item(
                             {"token": "B-" + token}
                         )
-                        if data.get("revoked"):
+                        if (
+                            data.get("revoked")
+                            or data["host"] != request.headers["host"]
+                        ):
                             raise AuthenticationError("Token is not valid")
                         request.bearer_data = data
                         return AuthCredentials(
@@ -203,7 +206,7 @@ def profile(request: Request):
     return {"me": "https://{}/".format(request.headers["host"])}
 
 
-async def redeem_auth_code(form):
+async def redeem_auth_code(request: Request, form: FormData):
     if form.get("grant_type") != "authorization_code":
         raise AuthException("unsupported_grant_type")
     if not "code" in form or not "client_id" in form or not "redirect_uri" in form:
@@ -219,6 +222,7 @@ async def redeem_auth_code(form):
                 form["client_id"] != data["client_id"]
                 or form["redirect_uri"] != data["redirect_uri"]
                 or data.get("used", False)
+                or data["host"] != request.headers["host"]
             ):
                 raise AuthException("invalid_grant")
             if data.get("code_challenge_method") == "S256":
@@ -296,7 +300,7 @@ class Authorization(HTTPEndpoint):
 
     async def post(self, request: Request):
         form = await request.form()
-        await redeem_auth_code(form)
+        await redeem_auth_code(request, form)
         return JSONResponse(profile(request))
 
 
@@ -310,7 +314,7 @@ class Token(HTTPEndpoint):
 
     async def post(self, request: Request):
         form = await request.form()
-        code_data = await redeem_auth_code(form)
+        code_data = await redeem_auth_code(request, form)
         bearer = token_urlsafe(16)
         data = {
             "token": "B-" + bearer,
@@ -347,6 +351,7 @@ async def allow(request: Request):
         "code_challenge": form.get("code_challenge"),
         "code_challenge_method": form.get("code_challenge_method"),
         "scopes": scopes,
+        "host": request.headers["host"],
     }
     redir_sep = "?" if urlparse(form["redirect_uri"]).query == "" else "&"
     redir_qs = urlencode({"code": code, "state": form["state"]})
