@@ -51,21 +51,8 @@ CSP_NOSCRIPT = "default-src 'self'; style-src 'self'; img-src 'self' data:; medi
 load_dotenv()
 aws_region = os.environ["AWS_REGION"]
 db_prefix = os.environ["DYNAMO_PREFIX"]
-session_secret = os.environ.get("SESSION_SECRET")
-admin_pw_hash = os.environ.get("PASSWORD_HASH")
-if not session_secret or not admin_pw_hash:
-    # when running on Lambda (boto3 installed already there)
-    import boto3
-
-    ssm = boto3.client("ssm")
-    ssm_prefix = os.environ["SSM_PREFIX"]
-    session_secret = ssm.get_parameter(
-        Name=ssm_prefix + "/sessionsecret", WithDecryption=True
-    )["Parameter"]["Value"]
-    admin_pw_hash = ssm.get_parameter(
-        Name=ssm_prefix + "/passwordhash", WithDecryption=True
-    )["Parameter"]["Value"]
-
+session_secret = os.environ["SESSION_SECRET"]
+admin_pw_hash = os.environ["PASSWORD_HASH"]
 hasher = PasswordHasher()
 tpl = Jinja2Templates(directory="tpl")
 
