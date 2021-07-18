@@ -45,6 +45,7 @@ SCOPE_INFO = {
     "undelete": "Restore deleted posts using Micropub",
     "media": "Upload files using Micropub",
 }
+CSP_NOSCRIPT = "default-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'"
 
 load_dotenv()
 aws_region = os.environ["AWS_REGION"]
@@ -157,7 +158,10 @@ class Login(HTTPEndpoint):
             return RedirectResponse(url=next, status_code=303)
         return tpl.TemplateResponse(
             "login.html",
-            {"noscript": True, "next": next, "request": request},
+            {"next": next, "request": request},
+            headers={
+                "Content-Security-Policy": CSP_NOSCRIPT,
+            },
         )
 
     async def post(self, request: Request):
@@ -178,7 +182,10 @@ class Login(HTTPEndpoint):
             error = "Something went wrong with the password check"
         return tpl.TemplateResponse(
             "login.html",
-            {"noscript": True, "next": next, "error": error, "request": request},
+            {"next": next, "error": error, "request": request},
+            headers={
+                "Content-Security-Policy": CSP_NOSCRIPT,
+            },
         )
 
 
@@ -230,11 +237,13 @@ def autherr(request, err):
     return tpl.TemplateResponse(
         "autherr.html",
         {
-            "noscript": True,
             "request": request,
             "err": err,
         },
         status_code=400,
+        headers={
+            "Content-Security-Policy": CSP_NOSCRIPT,
+        },
     )
 
 
@@ -272,10 +281,12 @@ class Authorization(HTTPEndpoint):
         return tpl.TemplateResponse(
             "authorize.html",
             {
-                "noscript": True,
                 "scope_info": SCOPE_INFO,
                 "req_scopes": req_scopes,
                 "request": request,
+            },
+            headers={
+                "Content-Security-Policy": CSP_NOSCRIPT,
             },
         )
 
@@ -351,16 +362,20 @@ async def logout(request: Request):
 async def dashboard(request: Request):
     return tpl.TemplateResponse(
         "dashboard.html",
-        {"noscript": True, "request": request},
+        {"request": request},
+        headers={
+            "Content-Security-Policy": CSP_NOSCRIPT,
+        },
     )
 
 
 async def testpage(request: Request):
     return tpl.TemplateResponse(
         "testpage.html",
-        {"noscript": True, "request": request},
+        {"request": request},
         headers={
-            "Link": '</.sellout/authz>; rel="authorization_endpoint", </.sellout/token>; rel="token_endpoint"'
+            "Link": '</.sellout/authz>; rel="authorization_endpoint", </.sellout/token>; rel="token_endpoint"',
+            "Content-Security-Policy": CSP_NOSCRIPT,
         },
     )
 
