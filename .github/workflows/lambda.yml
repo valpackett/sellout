@@ -12,8 +12,8 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - run: pipx install pdm
+    - run: pipx inject pdm toml
     - run: pdm remove uvicorn
-    - run: pdm install
     - run: zip -9 -y -r lambda.zip .
     - uses: stcalica/update-lambda@0.0.2
       with:
