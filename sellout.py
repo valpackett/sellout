@@ -292,7 +292,7 @@ class Authorization(HTTPEndpoint):
 
     async def post(self, request: Request):
         form = await request.form()
-        redeem_auth_code(form)
+        await redeem_auth_code(form)
         return JSONResponse(profile(request))
 
 
@@ -306,7 +306,7 @@ class Token(HTTPEndpoint):
 
     async def post(self, request: Request):
         form = await request.form()
-        code_data = redeem_auth_code(form)
+        code_data = await redeem_auth_code(form)
         bearer = token_urlsafe(16)
         data = {
             "token": "B-" + bearer,
