@@ -149,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "mangum"
-version = "0.11.0"
+version = "0.12.0"
 requires_python = ">=3.6"
 summary = "AWS Lambda & API Gateway support for ASGI"
 dependencies = [
@@ -196,7 +196,7 @@ extras = ["crypto"]
 requires_python = ">=3.6"
 summary = "JSON Web Token implementation in Python"
 dependencies = [
-    "PyJWT==2.1.0",
+    "PyJWT>=2.0.0",
     "cryptography<4.0.0,>=3.3.1",
 ]
 
@@ -225,7 +225,7 @@ extras = ["idna2008"]
 summary = "Validating URI References per RFC 3986"
 dependencies = [
     "idna",
-    "rfc3986==1.5.0",
+    "rfc3986<2,>=1.3",
 ]
 
 [[package]]
@@ -435,9 +435,9 @@ content_hash = "sha256:91e620edbd7b7ff28af09c9e99eb8d0aee55a3781bb1c7bb346ec76f0
     {file = "Jinja2-3.0.1-py3-none-any.whl", hash = "sha256:1f06f2da51e7b56b8f238affdd6b4e2c61e39598a378cc49345bc1bd42a978a4"},
     {file = "Jinja2-3.0.1.tar.gz", hash = "sha256:703f484b47a6af502e743c9122595cc812b0271f661722403114f71a79d0f5a4"},
 ]
-"mangum 0.11.0" = [
-    {file = "mangum-0.11.0-py3-none-any.whl", hash = "sha256:516309ba6d3d62c8fa8371d2779fc41e4f3dc1df91967e83e97db027e56dba1d"},
-    {file = "mangum-0.11.0.tar.gz", hash = "sha256:4b8e69030ba2182d4ce089620ee5c5b6075ae3cc5cedb00ab1d3db264231980e"},
+"mangum 0.12.0" = [
+    {file = "mangum-0.12.0-py3-none-any.whl", hash = "sha256:b6cd98d23416985a9b118ca03e4620bb215e242170aec66d6fdc82088100110c"},
+    {file = "mangum-0.12.0.tar.gz", hash = "sha256:36df161fa6894a47b3b899bd4a4430b5f075baa8d2d40b1cefc6a336e464f362"},
 ]
 "markupsafe 2.0.1" = [
     {file = "MarkupSafe-2.0.1-cp36-cp36m-macosx_10_9_x86_64.whl", hash = "sha256:f9081981fe268bd86831e5c75f7de206ef275defcb82bc70740ae6dc507aee51"},
