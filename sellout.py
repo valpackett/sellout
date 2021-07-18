@@ -1,6 +1,7 @@
 import os
 import typing
 import functools
+import mimetypes
 from datetime import datetime, timedelta
 from hashlib import sha256
 from base64 import urlsafe_b64decode
@@ -67,6 +68,8 @@ if not session_secret or not admin_pw_hash:
 
 hasher = PasswordHasher()
 tpl = Jinja2Templates(directory="tpl")
+
+mimetypes.add_type("font/woff2", ".woff2")
 
 
 def db_table(h, tbl):
