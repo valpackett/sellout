@@ -223,8 +223,9 @@ async def redeem_auth_code(form):
                     raise AuthException("invalid_request")
                 if not constant_time.bytes_eq(
                     sha256(form["code_verifier"].encode("ascii")).digest(),
-                    urlsafe_b64decode(data.get("code_challenge")),
+                    urlsafe_b64decode(data["code_challenge"] + "=="),
                 ):
+                    # ^^ fun fact, we can always just add the padding: https://stackoverflow.com/a/49459036
                     raise AuthException("invalid_grant")
             data["used"] = True
             await tbl.put_item(data)
