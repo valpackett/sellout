@@ -35,7 +35,6 @@ from aiodynamo.credentials import Credentials as DbCreds
 from aiodynamo.errors import ItemNotFound
 from aiodynamo.http.httpx import HTTPX
 from httpx import AsyncClient
-from mangum import Mangum
 
 SCOPE_INFO = {
     "profile": "Get basic profile information",
@@ -395,4 +394,3 @@ app = Starlette(
     ],
     exception_handlers={AuthException: auth_exception},
 )
-lambda_handler = Mangum(app)
