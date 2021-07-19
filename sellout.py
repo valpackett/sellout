@@ -317,6 +317,8 @@ class Token(HTTPEndpoint):
 
 @requires("via_cookie", redirect="login")
 async def allow(request: Request):
+    if request.headers.get("sec-fetch-site", "same-origin") != "same-origin":
+        return autherr(request, "request MUST be same-origin")
     form = await request.form()
     if not "client_id" in form:
         return autherr(request, "client_id MUST exist")
