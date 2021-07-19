@@ -46,7 +46,7 @@ SCOPE_INFO = {
     "undelete": "Restore deleted posts using Micropub",
     "media": "Upload files using Micropub",
 }
-CSP_NOSCRIPT = "default-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'"
+CSP_NOSCRIPT = "default-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 
 load_dotenv()
 aws_region = os.environ["AWS_REGION"]
