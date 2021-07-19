@@ -304,6 +304,7 @@ class Token(HTTPEndpoint):
         data = {
             "token": "B-" + bearer,
             "time": datetime.utcnow().isoformat(),
+            "code_used": code_data["token"],
             "client_id": code_data["client_id"],
             "scopes": code_data["scopes"],
         }
