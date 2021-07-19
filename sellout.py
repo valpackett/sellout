@@ -397,7 +397,7 @@ app = Starlette(
             SessionMiddleware,
             secret_key=session_secret,
             session_cookie="__Host-wheeeee",
-            same_site="strict",
+            same_site="Lax",
             https_only=True,
         ),
         Middleware(AuthenticationMiddleware, backend=TokenAndSessionBackend()),
