@@ -71,14 +71,12 @@ class WeirdnessMiddleware(object):
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
             headers = MutableHeaders(scope=scope)
-            print(headers)
             xhost = headers.get("x-forwarded-host")
             xauth = headers.get("x-authorization")
             if xhost:
                 headers["host"] = xhost
             if xauth:
                 headers["authorization"] = xauth
-            print(headers)
         await self.app(scope, receive, send)
 
 
