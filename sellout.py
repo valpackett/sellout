@@ -46,6 +46,7 @@ SCOPE_INFO = {
     "undelete": "Restore deleted posts using Micropub",
     "media": "Upload files using Micropub",
 }
+ALL_SCOPES = [k for k in SCOPE_INFO.keys()]
 CSP_NOSCRIPT = "default-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 COMMON_HEADERS = {
     "X-Frame-Options": "DENY",
@@ -118,8 +119,22 @@ def requires(
     return decorator
 
 
+async def authenticate_bearer(request: Request, token: str):
+    async with AsyncClient() as h:
+        try:
+            data = await db_table(h, "auth").get_item({"token": "B-" + token})
+            if data.get("revoked") or data["host"] != request.headers["host"]:
+                raise AuthenticationError("Token is not valid")
+            request.scope["bearer_data"] = data
+            return AuthCredentials(["via_bearer", *data["scopes"]]), SimpleUser("admin")
+        except ItemNotFound:
+            raise AuthenticationError("Token is not valid")
+
+
 class TokenAndSessionBackend(AuthenticationBackend):
-    async def authenticate(self, request):
+    async def authenticate(self, request: Request):
+        if request.session.get("au", False):
+            return AuthCredentials(["via_cookie", *ALL_SCOPES]), SimpleUser("admin")
         if "Authorization" in request.headers:
             try:
                 scheme, token = request.headers["Authorization"].split()
@@ -127,28 +142,13 @@ class TokenAndSessionBackend(AuthenticationBackend):
                     raise AuthenticationError(
                         "Unsupported Authorization header scheme {}".format(scheme)
                     )
-                async with AsyncClient() as h:
-                    try:
-                        data = await db_table(h, "auth").get_item(
-                            {"token": "B-" + token}
-                        )
-                        if (
-                            data.get("revoked")
-                            or data["host"] != request.headers["host"]
-                        ):
-                            raise AuthenticationError("Token is not valid")
-                        request.bearer_data = data
-                        return AuthCredentials(
-                            ["via_bearer"] + data["scopes"]
-                        ), SimpleUser("admin")
-                    except ItemNotFound:
-                        raise AuthenticationError("Token is not valid")
+                return await authenticate_bearer(request, token)
             except ValueError:
                 raise AuthenticationError("What even is this Authorization header?")
-        if request.session.get("au", False):
-            return AuthCredentials(
-                ["via_cookie"] + [k for k in SCOPE_INFO.keys()]
-            ), SimpleUser("admin")
+        if request.method in ("POST", "PUT", "DELETE"):
+            form = await request.form()
+            if "access_token" in form:
+                return await authenticate_bearer(request, form["access_token"])
 
 
 class Login(HTTPEndpoint):
@@ -293,8 +293,9 @@ class Token(HTTPEndpoint):
     @requires("via_bearer", redirect="login")
     async def get(self, request: Request):
         resp = profile(request)
-        resp["client_id"] = request.bearer_data["client_id"]
-        resp["scope"] = " ".join(request.bearer_data["scopes"])
+        bd = request.scope["bearer_data"]
+        resp["client_id"] = bd["client_id"]
+        resp["scope"] = " ".join(bd["scopes"])
         return JSONResponse(resp)
 
     async def post(self, request: Request):
