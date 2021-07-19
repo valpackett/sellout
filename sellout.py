@@ -201,10 +201,9 @@ async def redeem_auth_code(request: Request, form: FormData):
             tbl = db_table(h, "auth")
             data = await tbl.get_item({"token": "C-" + form["code"]})
             time = datetime.fromisoformat(data["time"])
-            if datetime.utcnow() - time > timedelta(minutes=10):
-                raise AuthException("invalid_grant")
             if (
-                form["client_id"] != data["client_id"]
+                datetime.utcnow() - time > timedelta(minutes=5)
+                or form["client_id"] != data["client_id"]
                 or form["redirect_uri"] != data["redirect_uri"]
                 or data.get("used", False)
                 or data["host"] != request.headers["host"]
