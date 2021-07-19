@@ -47,6 +47,15 @@ SCOPE_INFO = {
     "media": "Upload files using Micropub",
 }
 CSP_NOSCRIPT = "default-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+COMMON_HEADERS = {
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "require-corp",  # kinda redundant with CSP but why not
+    "Permissions-Policy": "sync-xhr=(), accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+}
+DEFAULT_HEADERS = {**COMMON_HEADERS, "Content-Security-Policy": CSP_NOSCRIPT}
 
 load_dotenv()
 aws_region = os.environ["AWS_REGION"]
@@ -150,9 +159,7 @@ class Login(HTTPEndpoint):
         return tpl.TemplateResponse(
             "login.html",
             {"next": next, "request": request},
-            headers={
-                "Content-Security-Policy": CSP_NOSCRIPT,
-            },
+            headers=DEFAULT_HEADERS,
         )
 
     async def post(self, request: Request):
@@ -174,9 +181,7 @@ class Login(HTTPEndpoint):
         return tpl.TemplateResponse(
             "login.html",
             {"next": next, "error": error, "request": request},
-            headers={
-                "Content-Security-Policy": CSP_NOSCRIPT,
-            },
+            headers=DEFAULT_HEADERS,
         )
 
 
@@ -233,9 +238,7 @@ def autherr(request, err):
             "err": err,
         },
         status_code=400,
-        headers={
-            "Content-Security-Policy": CSP_NOSCRIPT,
-        },
+        headers=DEFAULT_HEADERS,
     )
 
 
@@ -277,9 +280,7 @@ class Authorization(HTTPEndpoint):
                 "req_scopes": req_scopes,
                 "request": request,
             },
-            headers={
-                "Content-Security-Policy": CSP_NOSCRIPT,
-            },
+            headers=DEFAULT_HEADERS,
         )
 
     async def post(self, request: Request):
@@ -358,9 +359,7 @@ async def dashboard(request: Request):
     return tpl.TemplateResponse(
         "dashboard.html",
         {"request": request},
-        headers={
-            "Content-Security-Policy": CSP_NOSCRIPT,
-        },
+        headers=DEFAULT_HEADERS,
     )
 
 
@@ -370,7 +369,7 @@ async def testpage(request: Request):
         {"request": request},
         headers={
             "Link": '</.sellout/authz>; rel="authorization_endpoint", </.sellout/token>; rel="token_endpoint"',
-            "Content-Security-Policy": CSP_NOSCRIPT,
+            **DEFAULT_HEADERS,
         },
     )
 
