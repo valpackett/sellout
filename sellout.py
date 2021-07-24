@@ -125,13 +125,13 @@ TOK_ERR = AuthenticationError(
 )
 
 
-async def authenticate_bearer(request: Request, token: str):
+async def authenticate_bearer(conn: HTTPConnection, token: str):
     async with AsyncClient() as h:
         try:
             data = await db_table(h, "auth").get_item({"token": "B-" + token})
-            if data.get("revoked") or data["host"] != request.headers["host"]:
+            if data.get("revoked") or data["host"] != conn.headers["host"]:
                 raise TOK_ERR
-            request.scope["bearer_data"] = data
+            conn.scope["bearer_data"] = data
             return AuthCredentials(["auth", "via_bearer", *data["scopes"]]), SimpleUser(
                 "admin"
             )
@@ -140,14 +140,14 @@ async def authenticate_bearer(request: Request, token: str):
 
 
 class TokenAndSessionBackend(AuthenticationBackend):
-    async def authenticate(self, request: Request):
-        if request.session.get("au", False):
+    async def authenticate(self, conn: HTTPConnection):
+        if conn.session.get("au", False):
             return AuthCredentials(["auth", "via_cookie", *ALL_SCOPES]), SimpleUser(
                 "admin"
             )
-        if "Authorization" in request.headers:
+        if "Authorization" in conn.headers:
             try:
-                scheme, token = request.headers["Authorization"].split()
+                scheme, token = conn.headers["Authorization"].split()
                 if scheme != "Bearer":
                     raise AuthenticationError(
                         400,
@@ -158,7 +158,7 @@ class TokenAndSessionBackend(AuthenticationBackend):
                             ),
                         },
                     )
-                return await authenticate_bearer(request, token)
+                return await authenticate_bearer(conn, token)
             except ValueError:
                 raise AuthenticationError(
                     400,
@@ -167,10 +167,10 @@ class TokenAndSessionBackend(AuthenticationBackend):
                         "error_description": "What even is this Authorization header?",
                     },
                 )
-        if request.method in ("POST", "PUT", "DELETE"):
-            form = await request.form()
+        if conn.scope["method"] in ("POST", "PUT", "DELETE"):
+            form = await conn.form()
             if "access_token" in form:
-                return await authenticate_bearer(request, form["access_token"])
+                return await authenticate_bearer(conn, form["access_token"])
 
 
 class Login(HTTPEndpoint):
