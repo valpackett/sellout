@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from argon2 import PasswordHasher, exceptions as argonerr
 from cryptography.hazmat.primitives import constant_time
 from starlette.applications import Starlette
-from starlette.requests import Request
+from starlette.requests import Request, HTTPConnection
 from starlette.responses import Response, RedirectResponse, JSONResponse
 from starlette.endpoints import HTTPEndpoint
 from starlette.authentication import (
@@ -119,32 +119,53 @@ def requires(
     return decorator
 
 
+TOK_ERR = AuthenticationError(
+    401, {"error": "unauthorized", "error_description": "Token is not valid"}
+)
+
+
 async def authenticate_bearer(request: Request, token: str):
     async with AsyncClient() as h:
         try:
             data = await db_table(h, "auth").get_item({"token": "B-" + token})
             if data.get("revoked") or data["host"] != request.headers["host"]:
-                raise AuthenticationError("Token is not valid")
+                raise TOK_ERR
             request.scope["bearer_data"] = data
-            return AuthCredentials(["via_bearer", *data["scopes"]]), SimpleUser("admin")
+            return AuthCredentials(["auth", "via_bearer", *data["scopes"]]), SimpleUser(
+                "admin"
+            )
         except ItemNotFound:
-            raise AuthenticationError("Token is not valid")
+            raise TOK_ERR
 
 
 class TokenAndSessionBackend(AuthenticationBackend):
     async def authenticate(self, request: Request):
         if request.session.get("au", False):
-            return AuthCredentials(["via_cookie", *ALL_SCOPES]), SimpleUser("admin")
+            return AuthCredentials(["auth", "via_cookie", *ALL_SCOPES]), SimpleUser(
+                "admin"
+            )
         if "Authorization" in request.headers:
             try:
                 scheme, token = request.headers["Authorization"].split()
                 if scheme != "Bearer":
                     raise AuthenticationError(
-                        "Unsupported Authorization header scheme {}".format(scheme)
+                        400,
+                        {
+                            "error": "invalid_request",
+                            "error_description": "Unsupported Authorization header scheme {}".format(
+                                scheme
+                            ),
+                        },
                     )
                 return await authenticate_bearer(request, token)
             except ValueError:
-                raise AuthenticationError("What even is this Authorization header?")
+                raise AuthenticationError(
+                    400,
+                    {
+                        "error": "invalid_request",
+                        "error_description": "What even is this Authorization header?",
+                    },
+                )
         if request.method in ("POST", "PUT", "DELETE"):
             form = await request.form()
             if "access_token" in form:
@@ -185,12 +206,6 @@ class Login(HTTPEndpoint):
         )
 
 
-class AuthException(HTTPException):
-    def __init__(self, detail):
-        self.detail = detail
-        self.status_code = 400
-
-
 def profile(request: Request):
     # TODO: actual profile
     return {"me": "https://{}/".format(request.headers["host"])}
@@ -198,9 +213,9 @@ def profile(request: Request):
 
 async def redeem_auth_code(request: Request, form: FormData):
     if form.get("grant_type") != "authorization_code":
-        raise AuthException("unsupported_grant_type")
+        raise AuthenticationError(400, {"error": "unsupported_grant_type"})
     if not "code" in form or not "client_id" in form or not "redirect_uri" in form:
-        raise AuthException("invalid_request")
+        raise AuthenticationError(400, {"error": "invalid_request"})
     async with AsyncClient() as h:
         try:
             tbl = db_table(h, "auth")
@@ -213,21 +228,21 @@ async def redeem_auth_code(request: Request, form: FormData):
                 or data.get("used", False)
                 or data["host"] != request.headers["host"]
             ):
-                raise AuthException("invalid_grant")
+                raise AuthenticationError(400, {"error": "invalid_grant"})
             if data.get("code_challenge_method") == "S256":
                 if not "code_verifier" in form:
-                    raise AuthException("invalid_request")
+                    raise AuthenticationError(400, {"error": "invalid_request"})
                 if not constant_time.bytes_eq(
                     sha256(form["code_verifier"].encode("ascii")).digest(),
                     urlsafe_b64decode(data["code_challenge"] + "=="),
                 ):
                     # ^^ fun fact, we can always just add the padding: https://stackoverflow.com/a/49459036
-                    raise AuthException("invalid_grant")
+                    raise AuthenticationError(400, {"error": "invalid_grant"})
             data["used"] = True
             await tbl.put_item(data)
             return data
         except (ItemNotFound, KeyError):
-            raise AuthException("invalid_grant")
+            raise AuthenticationError(400, {"error": "invalid_grant"})
 
 
 def autherr(request, err):
@@ -376,8 +391,14 @@ async def testpage(request: Request):
     )
 
 
-async def auth_exception(request: Request, exc: AuthException):
-    return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
+def on_auth_error(conn: HTTPConnection, exc: AuthenticationError) -> Response:
+    (status, obj) = exc.args
+    return JSONResponse(obj, status_code=status)
+
+
+async def on_auth_exception(request: Request, exc: AuthenticationError) -> Response:
+    (status, obj) = exc.args
+    return JSONResponse(obj, status_code=status)
 
 
 app = Starlette(
@@ -401,7 +422,11 @@ app = Starlette(
             same_site="Lax",
             https_only=True,
         ),
-        Middleware(AuthenticationMiddleware, backend=TokenAndSessionBackend()),
+        Middleware(
+            AuthenticationMiddleware,
+            backend=TokenAndSessionBackend(),
+            on_error=on_auth_error,
+        ),
     ],
-    exception_handlers={AuthException: auth_exception},
+    exception_handlers={AuthenticationError: on_auth_exception},
 )
