@@ -167,10 +167,6 @@ class TokenAndSessionBackend(AuthenticationBackend):
                         "error_description": "What even is this Authorization header?",
                     },
                 )
-        if conn.scope["method"] in ("POST", "PUT", "DELETE"):
-            form = await conn.form()
-            if "access_token" in form:
-                return await authenticate_bearer(conn, form["access_token"])
 
 
 class Login(HTTPEndpoint):
