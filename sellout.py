@@ -93,7 +93,6 @@ class WeirdnessMiddleware(object):
 # https://github.com/encode/starlette/pull/920
 def requires(
     scopes: typing.Union[str, typing.Sequence[str]],
-    status_code: int = 403,
     redirect: str = None,
 ) -> typing.Callable:
     scopes_list = [scopes] if isinstance(scopes, str) else list(scopes)
@@ -104,6 +103,8 @@ def requires(
             request = kwargs.get("request", args[-1] if args else None)
             assert isinstance(request, Request)
 
+            if redirect is None and not has_required_scope(request, ["auth"]):
+                raise AuthenticationError(401, {"error": "unauthorized"})
             if not has_required_scope(request, scopes_list):
                 if redirect is not None:
                     next_url = "{redirect_path}?{orig_request}".format(
@@ -111,7 +112,7 @@ def requires(
                         orig_request=urlencode({"next": str(request.url)}),
                     )
                     return RedirectResponse(url=next_url, status_code=303)
-                raise HTTPException(status_code=status_code)
+                raise AuthenticationError(403, {"error": "insufficient_scope"})
             return await func(*args, **kwargs)
 
         return async_wrapper
