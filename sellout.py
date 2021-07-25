@@ -758,6 +758,7 @@ class Micropub(HTTPEndpoint):
                     request.scope["auth"],
                     request.scope["user"],
                 ) = await authenticate_bearer(request, form["access_token"])
+                del form["access_token"]
             if not has_required_scope(request, ["create"]):
                 raise AuthenticationError(403, {"error": "insufficient_scope"})
             h = "unknown"
