@@ -4,7 +4,7 @@ import typing
 import functools
 import mimetypes
 import tomlkit
-from typing import Tuple, Iterable
+from typing import Any, Tuple, List, Iterable, Mapping, TypedDict
 from datetime import datetime, timedelta
 from hashlib import sha1, sha256
 from base64 import urlsafe_b64decode, b64encode
@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from argon2 import PasswordHasher, exceptions as argonerr
 from cryptography.hazmat.primitives import constant_time
 from multipart.multipart import parse_options_header
+from pydantic import BaseModel, ValidationError, conlist
 from starlette.applications import Starlette
 from starlette.requests import Request, HTTPConnection
 from starlette.responses import Response, RedirectResponse, JSONResponse
@@ -21,6 +22,7 @@ from starlette.endpoints import HTTPEndpoint
 from starlette.authentication import (
     AuthenticationBackend,
     AuthenticationError,
+    BaseUser,
     SimpleUser,
     UnauthenticatedUser,
     AuthCredentials,
@@ -139,7 +141,9 @@ TOK_ERR = AuthenticationError(
 )
 
 
-async def authenticate_bearer(conn: HTTPConnection, token: str):
+async def authenticate_bearer(
+    conn: HTTPConnection, token: str
+) -> Tuple[AuthCredentials, BaseUser]:
     async with AsyncClient() as h:
         try:
             data = await db_table(h, "auth").get_item({"token": "B-" + token})
@@ -154,7 +158,9 @@ async def authenticate_bearer(conn: HTTPConnection, token: str):
 
 
 class TokenAndSessionBackend(AuthenticationBackend):
-    async def authenticate(self, conn: HTTPConnection):
+    async def authenticate(
+        self, conn: HTTPConnection
+    ) -> Tuple[AuthCredentials, BaseUser]:
         if conn.session.get("au", False):
             return AuthCredentials(["auth", "via_cookie", *ALL_SCOPES]), SimpleUser(
                 "admin"
@@ -184,7 +190,7 @@ class TokenAndSessionBackend(AuthenticationBackend):
 
 
 class Login(HTTPEndpoint):
-    async def get(self, request: Request):
+    async def get(self, request: Request) -> Response:
         next = request.query_params.get("next", "/")
         if request.user.is_authenticated:
             return RedirectResponse(url=next, status_code=303)
@@ -194,7 +200,7 @@ class Login(HTTPEndpoint):
             headers=DEFAULT_HEADERS,
         )
 
-    async def post(self, request: Request):
+    async def post(self, request: Request) -> Response:
         form = await request.form()
         next = form.get("next", "/.sellout/")
         if request.user.is_authenticated:
@@ -217,12 +223,12 @@ class Login(HTTPEndpoint):
         )
 
 
-def profile(request: Request):
+def profile(request: Request) -> Mapping[str, Any]:
     # TODO: actual profile
     return {"me": "https://{}/".format(request.headers["host"])}
 
 
-async def redeem_auth_code(request: Request, form: FormData):
+async def redeem_auth_code(request: Request, form: FormData) -> Mapping[str, Any]:
     if form.get("grant_type") != "authorization_code":
         raise AuthenticationError(400, {"error": "unsupported_grant_type"})
     if not "code" in form or not "client_id" in form or not "redirect_uri" in form:
@@ -256,7 +262,7 @@ async def redeem_auth_code(request: Request, form: FormData):
             raise AuthenticationError(400, {"error": "invalid_grant"})
 
 
-def autherr(request, err):
+def autherr(request: Request, err) -> Response:
     return tpl.TemplateResponse(
         "autherr.html",
         {
@@ -270,7 +276,7 @@ def autherr(request, err):
 
 class Authorization(HTTPEndpoint):
     @requires("via_cookie", redirect="login")
-    async def get(self, request: Request):
+    async def get(self, request: Request) -> Response:
         if request.query_params.get("response_type") != "code":
             return autherr(request, "response_type MUST be 'code'")
         if not "client_id" in request.query_params:
@@ -309,7 +315,7 @@ class Authorization(HTTPEndpoint):
             headers=DEFAULT_HEADERS,
         )
 
-    async def post(self, request: Request):
+    async def post(self, request: Request) -> Response:
         form = await request.form()
         await redeem_auth_code(request, form)
         return JSONResponse(profile(request))
@@ -317,14 +323,14 @@ class Authorization(HTTPEndpoint):
 
 class Token(HTTPEndpoint):
     @requires("via_bearer", redirect="login")
-    async def get(self, request: Request):
+    async def get(self, request: Request) -> Response:
         resp = profile(request)
         bd = request.scope["bearer_data"]
         resp["client_id"] = bd["client_id"]
         resp["scope"] = " ".join(bd["scopes"])
         return JSONResponse(resp)
 
-    async def post(self, request: Request):
+    async def post(self, request: Request) -> Response:
         form = await request.form()
         code_data = await redeem_auth_code(request, form)
         bearer = token_urlsafe(16)
@@ -346,7 +352,7 @@ class Token(HTTPEndpoint):
 
 
 @requires("via_cookie", redirect="login")
-async def allow(request: Request):
+async def allow(request: Request) -> Response:
     if request.headers.get("sec-fetch-site", "same-origin") != "same-origin":
         return autherr(request, "request MUST be same-origin")
     form = await request.form()
@@ -378,13 +384,13 @@ async def allow(request: Request):
 
 
 @requires("via_cookie", redirect="login")
-async def logout(request: Request):
+async def logout(request: Request) -> Response:
     del request.session["au"]
     return RedirectResponse(url="/", status_code=303)
 
 
 @requires("via_cookie", redirect="login")
-async def dashboard(request: Request):
+async def dashboard(request: Request) -> Response:
     return tpl.TemplateResponse(
         "dashboard.html",
         {"request": request},
@@ -392,7 +398,7 @@ async def dashboard(request: Request):
     )
 
 
-async def testpage(request: Request):
+async def testpage(request: Request) -> Response:
     return tpl.TemplateResponse(
         "testpage.html",
         {"request": request},
@@ -406,7 +412,7 @@ async def testpage(request: Request):
 Post = Tuple[tomlkit.toml_document.TOMLDocument, str]
 
 
-async def get_post(h, path: str) -> (Post, str):
+async def get_post(h, path: str) -> Tuple[Post, str]:
     raw_text = await GitHubAPI(h, "sellout", oauth_token=github_token).getitem(
         "/repos/{owner}/{repo}/contents/{path}{?ref}",
         url_vars={
@@ -487,7 +493,15 @@ def url2path(request: Request, url: str) -> str:
     return os.path.join(path_prefix, parts.path.lstrip("/") + ".md")
 
 
-def post2json(post: Post) -> dict:
+MfProps = Mapping[str, List[Any]]
+
+
+class MfObj(BaseModel):
+    type: conlist(str, min_items=1)
+    properties: MfProps
+
+
+def post2json(post: Post) -> MfObj:
     (fm, content_text) = post
     props = {}
     for k, v in fm.get("extra", {}).items():
@@ -506,24 +520,14 @@ def post2json(post: Post) -> dict:
         props["category"] = fm["taxonomies"]["tag"]
     if len(content_text.strip()) > 0:
         props["content"] = [content_text]
-    return {"type": ["h-entry"], "properties": props}
+    return MfObj(type=["h-entry"], properties=props)
 
 
-def json2post_inner(post: Post, props: dict, add_mode: bool) -> Post:
+def json2post_inner(post: Post, props: MfProps, add_mode: bool) -> Post:
     (fm, content_text) = post
     for k, v in props.items():
         if v == None:  # ehhh let's allow nulls why not
             continue
-        if not isinstance(v, list):
-            raise DataError(
-                400,
-                {
-                    "error": "invalid_request",
-                    "error_description": "each property must be a list, check '{}'".format(
-                        k
-                    ),
-                },
-            )
         if len(v) == 0:
             continue
         # TODO: check that these recognized ones are string valued
@@ -565,25 +569,29 @@ def json2post_inner(post: Post, props: dict, add_mode: bool) -> Post:
     return (fm, content_text)
 
 
-def json2post(data: dict) -> Post:
-    props = data.get("properties", {})
-    if not isinstance(props, dict):
+def json2post(data: MfObj) -> Post:
+    fm = tomlkit.toml_document.TOMLDocument()
+    content_text = ""
+    return json2post_inner((fm, content_text), data.properties, False)
+
+
+def check_json(data: dict) -> MfObj:
+    try:
+        return MfObj(**data)
+    except ValidationError as e:
         raise DataError(
             400,
             {
                 "error": "invalid_request",
-                "error_description": "properties must be an object",
+                "error_description": str(e),
             },
         )
-    fm = tomlkit.toml_document.TOMLDocument()
-    content_text = ""
-    return json2post_inner((fm, content_text), props, False)
 
 
 async def micropub_create(request: Request, data: dict) -> Response:
     category = "notes"
     slug = data.get("mp-slug")
-    (fm, content_text) = json2post(data)
+    (fm, content_text) = json2post(check_json(data))
     if not "date" in fm:
         fm["date"] = datetime.now()
     if "bearer_data" in request.scope and "client_id" in request.scope["bearer_data"]:
@@ -717,7 +725,7 @@ async def micropub_delete(request: Request, data: dict) -> Response:
 
 class Micropub(HTTPEndpoint):
     @requires("auth")
-    async def get(self, request: Request):
+    async def get(self, request: Request) -> Response:
         q = request.query_params.get("q")
         if q == "config":
             return JSONResponse({})
@@ -727,14 +735,14 @@ class Micropub(HTTPEndpoint):
             url = request.query_params.get("url")
             async with AsyncClient() as h:
                 (post, _) = await get_post(h, url2path(request, url))
-                return JSONResponse(post2json(post))
+                return JSONResponse(post2json(post).dict())
         return JSONResponse(
             {"error": "invalid_request", "error_description": "Unsupported ?q value"},
             status_code=400,
         )
 
     # Cannot use @requires because the token can be in the form >_<
-    async def post(self, request: Request):
+    async def post(self, request: Request) -> Response:
         content_type, options = parse_options_header(
             request.headers.get("content-type")
         )
