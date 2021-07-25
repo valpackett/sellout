@@ -586,6 +586,10 @@ async def micropub_create(request: Request, data: dict) -> Response:
     (fm, content_text) = json2post(data)
     if not "date" in fm:
         fm["date"] = datetime.now()
+    if "bearer_data" in request.scope and "client_id" in request.scope["bearer_data"]:
+        if not "extra" in fm:
+            fm["extra"] = {}
+        fm["extra"]["client_id"] = [request.scope["bearer_data"]["client_id"]]
     if "title" in fm:
         category = "articles"
         # TODO: slugify title
