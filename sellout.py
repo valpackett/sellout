@@ -762,7 +762,6 @@ class Micropub(HTTPEndpoint):
                     request.scope["auth"],
                     request.scope["user"],
                 ) = await authenticate_bearer(request, form["access_token"])
-                del form["access_token"]
             if not has_required_scope(request, ["create"]):
                 raise AuthenticationError(403, {"error": "insufficient_scope"})
             h = "unknown"
@@ -771,6 +770,8 @@ class Micropub(HTTPEndpoint):
             for k, v in form.multi_items():
                 if k == "h":
                     data["type"] = ["h-" + v]
+                elif k == "access_token":
+                    pass
                 elif k.startswith("mp-"):
                     data[k] = v
                 elif k.endswith("[]"):
