@@ -334,6 +334,7 @@ class Token(HTTPEndpoint):
             "code_used": code_data["token"],
             "client_id": code_data["client_id"],
             "scopes": code_data["scopes"],
+            "host": request.headers["host"],
         }
         async with AsyncClient() as h:
             await db_table(h, "auth").put_item(data)
