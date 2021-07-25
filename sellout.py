@@ -1,15 +1,18 @@
 import os
+import re
 import typing
 import functools
 import mimetypes
+import tomlkit
 from datetime import datetime, timedelta
-from hashlib import sha256
-from base64 import urlsafe_b64decode
+from hashlib import sha1, sha256
+from base64 import urlsafe_b64decode, b64encode
 from secrets import token_urlsafe
 from urllib.parse import urlencode, urlparse
 from dotenv import load_dotenv
 from argon2 import PasswordHasher, exceptions as argonerr
 from cryptography.hazmat.primitives import constant_time
+from multipart.multipart import parse_options_header
 from starlette.applications import Starlette
 from starlette.requests import Request, HTTPConnection
 from starlette.responses import Response, RedirectResponse, JSONResponse
@@ -35,6 +38,7 @@ from aiodynamo.client import Client as DbClient
 from aiodynamo.credentials import Credentials as DbCreds
 from aiodynamo.errors import ItemNotFound
 from aiodynamo.http.httpx import HTTPX
+from gidgethub.httpx import GitHubAPI
 from httpx import AsyncClient
 
 SCOPE_INFO = {
@@ -57,16 +61,25 @@ COMMON_HEADERS = {
     "Permissions-Policy": "sync-xhr=(), accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
 }
 DEFAULT_HEADERS = {**COMMON_HEADERS, "Content-Security-Policy": CSP_NOSCRIPT}
+FRONTMATTER_RE = re.compile(r"^\+{3,}\s*$", re.MULTILINE)
 
 load_dotenv()
 aws_region = os.environ["AWS_REGION"]
 db_prefix = os.environ["DYNAMO_PREFIX"]
 session_secret = os.environ["SESSION_SECRET"]
 admin_pw_hash = os.environ["PASSWORD_HASH"]
+github_token = os.environ["GITHUB_TOKEN"]
+github_owner, github_repo = os.environ["GITHUB_REPO"].split("/")
+github_branch = os.environ["GITHUB_BRANCH"]
+path_prefix = os.environ.get("PATH_PREFIX", "content/")
 hasher = PasswordHasher()
 tpl = Jinja2Templates(directory="tpl")
 
 mimetypes.add_type("font/woff2", ".woff2")
+
+
+class DataError(Exception):
+    pass
 
 
 def db_table(h, tbl):
@@ -382,18 +395,396 @@ async def testpage(request: Request):
         "testpage.html",
         {"request": request},
         headers={
-            "Link": '</.sellout/authz>; rel="authorization_endpoint", </.sellout/token>; rel="token_endpoint"',
+            "Link": '</.sellout/authz>; rel="authorization_endpoint", </.sellout/token>; rel="token_endpoint", </.sellout/pub>; rel="micropub"',
             **DEFAULT_HEADERS,
         },
     )
 
 
-def on_auth_error(conn: HTTPConnection, exc: AuthenticationError) -> Response:
+Post = tuple[tomlkit.toml_document.TOMLDocument, str]
+
+
+async def get_post(h, path: str) -> (Post, str):
+    raw_text = await GitHubAPI(h, "sellout", oauth_token=github_token).getitem(
+        "/repos/{owner}/{repo}/contents/{path}{?ref}",
+        url_vars={
+            "owner": github_owner,
+            "repo": github_repo,
+            "path": path,
+            "ref": github_branch,
+        },
+        accept="application/vnd.github.v3.raw",
+    )
+    _, fm_text, content_text = FRONTMATTER_RE.split(raw_text, 2)
+    utf8_text = raw_text.encode("utf-8")
+    post_sha = sha1(
+        "blob {}\0".format(len(utf8_text)).encode("utf-8") + utf8_text
+    ).hexdigest()
+    return ((tomlkit.loads(fm_text), content_text), post_sha)
+
+
+async def put_post(h, path: str, post: Post, post_sha: str = None):
+    (fm, content_text) = post
+    raw_text = "+++"
+    fm_text = tomlkit.dumps(fm)
+    if not fm_text.startswith("\n"):
+        raw_text += "\n"
+    raw_text += fm_text
+    if not raw_text.endswith("\n"):
+        raw_text += "\n"
+    raw_text += "+++\n"
+    if not content_text.startswith("\n"):
+        raw_text += "\n"
+    raw_text += content_text
+    data = {
+        "branch": github_branch,
+        "message": "[micropub] put " + path,
+        "content": b64encode(raw_text.encode("utf-8")).decode("ascii"),
+    }
+    if post_sha:
+        data["sha"] = post_sha
+    return await GitHubAPI(h, "sellout", oauth_token=github_token).put(
+        "/repos/{owner}/{repo}/contents/{path}",
+        url_vars={
+            "owner": github_owner,
+            "repo": github_repo,
+            "path": path,
+        },
+        data=data,
+    )
+
+
+async def delete_post(h, path: str, post_sha: str):
+    return await GitHubAPI(h, "sellout", oauth_token=github_token).delete(
+        "/repos/{owner}/{repo}/contents/{path}",
+        url_vars={
+            "owner": github_owner,
+            "repo": github_repo,
+            "path": path,
+        },
+        data={
+            "branch": github_branch,
+            "message": "[micropub] delete " + path,
+            "sha": post_sha,
+        },
+    )
+
+
+def url2path(request: Request, url: str) -> str:
+    parts = urlparse(url)
+    if parts.netloc != request.headers["host"] and not request.headers[
+        "host"
+    ].startswith("127.0.0.1"):
+        raise DataError(
+            400,
+            {
+                "error": "invalid_request",
+                "error_description": "The provided URL is not on the current domain",
+            },
+        )
+    return os.path.join(path_prefix, parts.path.lstrip("/") + ".md")
+
+
+def post2json(post: Post) -> dict:
+    (fm, content_text) = post
+    props = {}
+    for k, v in fm.get("extra", {}).items():
+        props[k.replace("_", "-")] = v
+    if "title" in fm:
+        props["name"] = [fm["title"]]
+    if "date" in fm:
+        if not isinstance(fm["date"], datetime):
+            fm["date"] = datetime.fromisoformat(fm["date"])
+        props["published"] = [fm["date"].isoformat()]
+    if "updated" in fm:
+        if not isinstance(fm["updated"], datetime):
+            fm["updated"] = datetime.fromisoformat(fm["updated"])
+        props["updated"] = [fm["updated"].isoformat()]
+    if "taxonomies" in fm and "tag" in fm["taxonomies"]:
+        props["category"] = fm["taxonomies"]["tag"]
+    if len(content_text.strip()) > 0:
+        props["content"] = [content_text]
+    return {"type": ["h-entry"], "properties": props}
+
+
+def json2post_inner(post: Post, props: dict, add_mode: bool) -> Post:
+    (fm, content_text) = post
+    for k, v in props.items():
+        if v == None:  # ehhh let's allow nulls why not
+            continue
+        if not isinstance(v, list):
+            raise DataError(
+                400,
+                {
+                    "error": "invalid_request",
+                    "error_description": "each property must be a list, check '{}'".format(
+                        k
+                    ),
+                },
+            )
+        if len(v) == 0:
+            continue
+        # TODO: check that these recognized ones are string valued
+        if k == "name":
+            fm["title"] = v[0]
+        elif k == "published":
+            fm["date"] = datetime.fromisoformat(v[0])
+        elif k == "updated":
+            fm["updated"] = datetime.fromisoformat(v[0])
+        elif k == "category":
+            if "taxonomies" not in fm:
+                fm["taxonomies"] = {}
+            if add_mode and "tag" in fm["taxonomies"]:
+                fm["taxonomies"]["tag"] += v
+            else:
+                fm["taxonomies"]["tag"] = v
+        elif k == "content":
+            # XXX: concatenate if add_mode?? :D
+            if isinstance(v[0], str):
+                content_text = v[0]
+            elif isinstance(v[0], dict):
+                content_text = v[0].get("text", v[0].get("value", v[0].get("html")))
+            if content_text == None:
+                raise DataError(
+                    400,
+                    {
+                        "error": "invalid_request",
+                        "error_description": "content must be a string or an object with a 'text', 'value' or 'html' key",
+                    },
+                )
+        else:
+            if "extra" not in fm:
+                fm["extra"] = {}
+            k = k.replace("-", "_")
+            if add_mode and k in fm["extra"]:
+                fm["extra"][k] += v
+            else:
+                fm["extra"][k] = v
+    return (fm, content_text)
+
+
+def json2post(data: dict) -> Post:
+    props = data.get("properties", {})
+    if not isinstance(props, dict):
+        raise DataError(
+            400,
+            {
+                "error": "invalid_request",
+                "error_description": "properties must be an object",
+            },
+        )
+    fm = tomlkit.toml_document.TOMLDocument()
+    content_text = ""
+    return json2post_inner((fm, content_text), props, False)
+
+
+async def micropub_create(request: Request, data: dict) -> Response:
+    category = "notes"
+    slug = data.get("mp-slug")
+    (fm, content_text) = json2post(data)
+    if not "date" in fm:
+        fm["date"] = datetime.now()
+    if "title" in fm:
+        category = "articles"
+        # TODO: slugify title
+    elif "extra" in fm and "in_reply_to" in fm["extra"]:
+        category = "replies"
+    elif "extra" in fm and "like_of" in fm["extra"]:
+        category = "likes"
+    elif "extra" in fm and "photo" in fm["extra"] and len(content_text.strip()) == 0:
+        category = "photos"
+    if not slug:
+        slug = fm["date"].strftime("%Y-%m-%d-%H-%M-%S")
+        fm["slug"] = slug  # store explicitly to prevent Zola from eating the date
+    path = category + "/" + slug
+    async with AsyncClient() as h:
+        await put_post(h, os.path.join(path_prefix, path + ".md"), (fm, content_text))
+    return Response(
+        None,
+        headers={"Location": "https://{}/{}".format(request.headers["host"], path)},
+        status_code=201,
+    )
+
+
+def delete_props(post: Post, props: list[str]) -> Post:
+    (fm, content_text) = post
+    for k in props:
+        if k == "name":
+            fm.pop("title", None)
+        elif k == "published":
+            pass  # uhh nope??
+        elif k == "updated":
+            fm.pop("updated", None)
+        elif k == "category":
+            if "taxonomies" not in fm:
+                continue
+            fm["taxonomies"].pop("tag", None)
+            if len(fm["taxonomies"]) == 0:
+                fm.pop("taxonomies", None)
+        elif k == "content":
+            content_text = ""
+        else:
+            if "extra" not in fm:
+                continue
+            fm["extra"].pop(k.replace("-", "_"), None)
+    return (fm, content_text)
+
+
+def delete_vals(post: Post, props: dict) -> Post:
+    (fm, content_text) = post
+    for k, v in props.items():
+        if not isinstance(v, list):
+            raise DataError(
+                400,
+                {
+                    "error": "invalid_request",
+                    "error_description": "each property must be a list, check '{}'".format(
+                        k
+                    ),
+                },
+            )
+        if k in ("name", "published", "updated", "content"):
+            pass  # uhh nope?? weird to delete these by value
+        elif k == "category":
+            if "taxonomies" not in fm or "tag" not in fm["taxonomies"]:
+                continue
+            fm["taxonomies"]["tag"] = [t for t in fm["taxonomies"]["tag"] if not t in v]
+            if len(fm["taxonomies"]["tag"]) == 0:
+                fm["taxonomies"].pop("tag", None)
+            if len(fm["taxonomies"]) == 0:
+                fm.pop("taxonomies", None)
+        else:
+            k = k.replace("-", "_")
+            if "extra" not in fm or k not in fm["extra"]:
+                continue
+            fm["extra"][k] = [x for x in fm["extra"][k] if not x in v]
+            if len(fm["extra"][k]) == 0:
+                del fm["extra"]["k"]
+    return (fm, content_text)
+
+
+async def micropub_update(request: Request, data: dict) -> Response:
+    if not "url" in data:
+        raise DataError(
+            400,
+            {
+                "error": "invalid_request",
+                "error_description": "url is required",
+            },
+        )
+    path = url2path(request, data["url"])
+    async with AsyncClient() as h:
+        (post, sha) = await get_post(h, path)
+        if "replace" in data:
+            post = json2post_inner(post, data["replace"], False)
+        if "add" in data:
+            post = json2post_inner(post, data["add"], True)
+        if "delete" in data and isinstance(data["delete"], list):
+            post = delete_props(post, data["delete"])
+        if "delete" in data and isinstance(data["delete"], dict):
+            post = delete_vals(post, data["delete"])
+        await put_post(h, path, post, post_sha=sha)
+    return Response(
+        None,
+        status_code=204,
+    )
+
+
+async def micropub_delete(request: Request, data: dict) -> Response:
+    if not "url" in data:
+        raise DataError(
+            400,
+            {
+                "error": "invalid_request",
+                "error_description": "url is required",
+            },
+        )
+    path = url2path(request, data["url"])
+    async with AsyncClient() as h:
+        (_, sha) = await get_post(h, path)
+        await delete_post(h, path, sha)
+    return Response(
+        None,
+        status_code=204,
+    )
+
+
+class Micropub(HTTPEndpoint):
+    @requires("auth")
+    async def get(self, request: Request):
+        q = request.query_params.get("q")
+        if q == "config":
+            return JSONResponse({})
+        if q == "syndicate-to":
+            return JSONResponse({"syndicate-to": []})
+        if q == "source":
+            url = request.query_params.get("url")
+            async with AsyncClient() as h:
+                (post, _) = await get_post(h, url2path(request, url))
+                return JSONResponse(post2json(post))
+        return JSONResponse(
+            {"error": "invalid_request", "error_description": "Unsupported ?q value"},
+            status_code=400,
+        )
+
+    # Cannot use @requires because the token can be in the form >_<
+    async def post(self, request: Request):
+        content_type, options = parse_options_header(
+            request.headers.get("content-type")
+        )
+        if content_type == b"application/json":
+            data = await request.json()
+            action = data.get("action", "create")
+            if not has_required_scope(request, [action]):
+                raise AuthenticationError(403, {"error": "insufficient_scope"})
+            if action == "create":
+                return await micropub_create(request, data)
+            if action == "update":
+                return await micropub_update(request, data)
+            if action == "delete":
+                return await micropub_delete(request, data)
+            # if action == "undelete":
+            # TODO: find last revision with the file in history and restore
+            return JSONResponse(
+                {"error": "invalid_request", "error_description": "Unsupported action"},
+                status_code=400,
+            )
+        else:
+            form = await request.form()
+            if "access_token" in form and not "auth" in request.scope:
+                (
+                    request.scope["auth"],
+                    request.scope["user"],
+                ) = await authenticate_bearer(request, form["access_token"])
+            if not has_required_scope(request, ["create"]):
+                raise AuthenticationError(403, {"error": "insufficient_scope"})
+            h = "unknown"
+            props = {}
+            data = {}
+            for k, v in form.multi_items():
+                if k == "h":
+                    data["type"] = ["h-" + v]
+                elif k.startswith("mp-"):
+                    data[k] = v
+                elif k.endswith("[]"):
+                    k = k[:-2]
+                    if k not in props:
+                        props[k] = [v]
+                    else:
+                        props[k].append(v)
+                else:
+                    props[k] = [v]
+            data["properties"] = props
+            return await micropub_create(request, data)
+        pass
+
+
+def on_auth_error(conn: HTTPConnection, exc: Exception) -> Response:
     (status, obj) = exc.args
     return JSONResponse(obj, status_code=status)
 
 
-async def on_auth_exception(request: Request, exc: AuthenticationError) -> Response:
+async def on_exception(request: Request, exc: Exception) -> Response:
     (status, obj) = exc.args
     return JSONResponse(obj, status_code=status)
 
@@ -403,6 +794,7 @@ app = Starlette(
     routes=[
         Route("/", testpage),
         Route("/.sellout/", dashboard),
+        Route("/.sellout/pub", Micropub, name="micropub"),
         Route("/.sellout/login", Login, name="login"),
         Route("/.sellout/authz", Authorization, name="authz"),
         Route("/.sellout/token", Token, name="token"),
@@ -425,5 +817,5 @@ app = Starlette(
             on_error=on_auth_error,
         ),
     ],
-    exception_handlers={AuthenticationError: on_auth_exception},
+    exception_handlers={AuthenticationError: on_exception, DataError: on_exception},
 )
