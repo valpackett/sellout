@@ -4,6 +4,7 @@ import typing
 import functools
 import mimetypes
 import tomlkit
+from typing import Tuple, Iterable
 from datetime import datetime, timedelta
 from hashlib import sha1, sha256
 from base64 import urlsafe_b64decode, b64encode
@@ -401,7 +402,7 @@ async def testpage(request: Request):
     )
 
 
-Post = tuple[tomlkit.toml_document.TOMLDocument, str]
+Post = Tuple[tomlkit.toml_document.TOMLDocument, str]
 
 
 async def get_post(h, path: str) -> (Post, str):
@@ -606,7 +607,7 @@ async def micropub_create(request: Request, data: dict) -> Response:
     )
 
 
-def delete_props(post: Post, props: list[str]) -> Post:
+def delete_props(post: Post, props: Iterable[str]) -> Post:
     (fm, content_text) = post
     for k in props:
         if k == "name":
