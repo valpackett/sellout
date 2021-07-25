@@ -333,6 +333,20 @@ class Token(HTTPEndpoint):
 
     async def post(self, request: Request) -> Response:
         form = await request.form()
+        if form.get("action") == "revoke":
+            async with AsyncClient() as h:
+                try:
+                    tbl = db_table(h, "auth")
+                    data = await tbl.get_item({"token": "B-" + form["token"]})
+                    if data["host"] == request.headers["host"]:
+                        data["revoked"] = True
+                        await tbl.put_item(data)
+                except Exception as e:
+                    # for requests from the admin UI, do not follow the OAuth spec and return the error
+                    if has_required_scope(request, ["via_cookie"]):
+                        # XXX: says "indieauth client"
+                        return autherr(request, str(e))
+            return JSONResponse({})
         code_data = await redeem_auth_code(request, form)
         bearer = token_urlsafe(16)
         data = {
