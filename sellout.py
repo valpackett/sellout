@@ -15,6 +15,7 @@ from argon2 import PasswordHasher, exceptions as argonerr
 from cryptography.hazmat.primitives import constant_time
 from multipart.multipart import parse_options_header
 from pydantic import BaseModel, ValidationError, conlist
+from slugify import slugify
 from starlette.applications import Starlette
 from starlette.requests import Request, HTTPConnection
 from starlette.responses import Response, RedirectResponse, JSONResponse
@@ -600,7 +601,8 @@ async def micropub_create(request: Request, data: dict) -> Response:
         fm["extra"]["client_id"] = [request.scope["bearer_data"]["client_id"]]
     if "title" in fm:
         category = "articles"
-        # TODO: slugify title
+        if not slug:
+            slug = slugify(fm["title"])
     elif "extra" in fm and "in_reply_to" in fm["extra"]:
         category = "replies"
     elif "extra" in fm and "like_of" in fm["extra"]:
