@@ -3,7 +3,7 @@
 The "less indie" option for [IndieWeb]-powering a website.
 Bezos is going to own every computer on the planet after all :D
 
-- an [IndieAuth] and [Micropub] implementation
+- an [IndieAuth] server ([authorization-endpoint], [token-endpoint]) and [Micropub] implementation
 - for GitHub-hosted static-generated sites
 	- specifically for [Zola] ones, as only its TOML front-matter is supported
 - designed to be able to run on AWS Lambda
@@ -27,6 +27,8 @@ Oh and it has:
 
 [IndieWeb]: https://indieweb.org/
 [IndieAuth]: https://indieweb.org/IndieAuth
+[authorization-endpoint]: https://indieweb.org/authorization-endpoint
+[token-endpoint]: https://indieweb.org/token-endpoint
 [Micropub]: https://indieweb.org/micropub
 [Zola]: https://www.getzola.org/
 [micro-panel]: https://github.com/unrelentingtech/micro-panel
