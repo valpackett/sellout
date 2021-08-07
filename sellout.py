@@ -534,7 +534,7 @@ def post2json(post: Post) -> MfObj:
     if "taxonomies" in fm and "tag" in fm["taxonomies"]:
         props["category"] = fm["taxonomies"]["tag"]
     if len(content_text.strip()) > 0:
-        props["content"] = [content_text]
+        props["content"] = [{"markdown": content_text}]
     return MfObj(type=["h-entry"], properties=props)
 
 
