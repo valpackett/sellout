@@ -564,13 +564,15 @@ def json2post_inner(post: Post, props: MfProps, add_mode: bool) -> Post:
             if isinstance(v[0], str):
                 content_text = v[0]
             elif isinstance(v[0], dict):
-                content_text = v[0].get("text", v[0].get("value", v[0].get("html")))
+                content_text = v[0].get(
+                    "text", v[0].get("value", v[0].get("markdown", v[0].get("html")))
+                )
             if content_text == None:
                 raise DataError(
                     400,
                     {
                         "error": "invalid_request",
-                        "error_description": "content must be a string or an object with a 'text', 'value' or 'html' key",
+                        "error_description": "content must be a string or an object with a 'text', 'value', 'markdown' or 'html' key",
                     },
                 )
         else:
