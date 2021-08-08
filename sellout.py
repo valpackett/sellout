@@ -36,8 +36,9 @@ from starlette.staticfiles import StaticFiles
 from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.datastructures import Headers, MutableHeaders, FormData
+from starlette.datastructures import Headers, MutableHeaders, FormData, UploadFile
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from aioaws.s3 import S3Client, S3Config
 from aiodynamo.client import Client as DbClient
 from aiodynamo.credentials import Credentials as DbCreds
 from aiodynamo.errors import ItemNotFound
@@ -70,6 +71,9 @@ FRONTMATTER_RE = re.compile(r"^\+{3,}\s*$", re.MULTILINE)
 load_dotenv()
 aws_region = os.environ["AWS_REGION"]
 db_prefix = os.environ["DYNAMO_PREFIX"]
+media_bucket = os.environ["MEDIA_BUCKET"]
+media_prefix = os.environ.get("MEDIA_PREFIX", "")
+media_url = os.environ["MEDIA_URL"]
 session_secret = os.environ["SESSION_SECRET"]
 admin_pw_hash = os.environ["PASSWORD_HASH"]
 github_token = os.environ["GITHUB_TOKEN"]
@@ -508,6 +512,17 @@ def url2path(request: Request, url: str) -> str:
     return os.path.join(path_prefix, parts.path.lstrip("/") + ".md")
 
 
+async def upload_file(file: UploadFile) -> str:
+    cont = await file.read()
+    base, ext = os.path.splitext(file.filename)
+    name = sha256(cont).hexdigest()[:6] + "_" + slugify(base) + ext
+    async with AsyncClient(timeout=10.0) as h:
+        key = await DbCreds.auto().get_key(HTTPX(h))
+        s3 = S3Client(h, S3Config(key.id, key.secret, aws_region, media_bucket))
+        await s3.upload(media_prefix + name, cont, content_type=file.content_type)
+    return media_url + name
+
+
 MfProps = Mapping[str, List[Any]]
 
 
@@ -746,7 +761,13 @@ class Micropub(HTTPEndpoint):
     async def get(self, request: Request) -> Response:
         q = request.query_params.get("q")
         if q == "config":
-            return JSONResponse({})
+            return JSONResponse(
+                {
+                    "media-endpoint": "https://{}/.sellout/media".format(
+                        request.headers["host"]
+                    )
+                }
+            )
         if q == "syndicate-to":
             return JSONResponse({"syndicate-to": []})
         if q == "source":
@@ -794,6 +815,8 @@ class Micropub(HTTPEndpoint):
             props = {}
             data = {}
             for k, v in form.multi_items():
+                if isinstance(v, UploadFile):
+                    v = await upload_file(v)
                 if k == "h":
                     data["type"] = ["h-" + v]
                 elif k == "access_token":
@@ -813,6 +836,30 @@ class Micropub(HTTPEndpoint):
         pass
 
 
+async def micropub_media(request: Request) -> Response:
+    form = await request.form()
+    if "access_token" in form and not "auth" in request.scope:
+        (
+            request.scope["auth"],
+            request.scope["user"],
+        ) = await authenticate_bearer(request, form["access_token"])
+    if not has_required_scope(request, ["media"]):
+        raise AuthenticationError(403, {"error": "insufficient_scope"})
+    if not "file" in form or not isinstance(form["file"], UploadFile):
+        raise DataError(
+            400,
+            {
+                "error": "invalid_request",
+                "error_description": "No valid 'file' included in media endpoint request",
+            },
+        )
+    return Response(
+        None,
+        headers={"Location": await upload_file(form["file"])},
+        status_code=201,
+    )
+
+
 def on_auth_error(conn: HTTPConnection, exc: Exception) -> Response:
     (status, obj) = exc.args
     return JSONResponse(obj, status_code=status)
@@ -829,6 +876,7 @@ app = Starlette(
         Route("/", testpage),
         Route("/.sellout/", dashboard),
         Route("/.sellout/pub", Micropub, name="micropub"),
+        Route("/.sellout/media", micropub_media, name="media", methods=["POST"]),
         Route("/.sellout/login", Login, name="login"),
         Route("/.sellout/authz", Authorization, name="authz"),
         Route("/.sellout/token", Token, name="token"),

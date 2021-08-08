@@ -8,7 +8,7 @@ Bezos is going to own every computer on the planet after all :D
 	- specifically for [Zola] ones, as only its TOML front-matter is supported
 - designed to be able to run on AWS Lambda
 - stores data like auth sessions in (oh no) DynamoDB
-- **TODO** uploads media to S3 (of course) 
+- uploads media to S3 (of course) 
 - should be put directly on the website's domain using a capable CDN
 	- … like AWS CloudFront (yep)
 	- with that, you can do cookie-authed Micropub for [micro-panel]
@@ -68,6 +68,9 @@ Environment variables:
 - `PYTHONPATH`: `/var/task/__pypackages__/3.8/lib:/var/runtime`
 - `SSM_PREFIX`: as above e.g. `/sellout`
 - `DYNAMO_PREFIX`: as above e.g. `unrelentingtech-`
+- `MEDIA_BUCKET`: S3 bucket name for media uploads
+- `MEDIA_PREFIX` (optional): a path prefix for S3 uploads (must not start with `/`)
+- `MEDIA_URL`: S3 or CDN URL where the S3 uploads are served from (must end with `/`)
 - `GITHUB_REPO`: user and repo e.g. `unrelentingtech/site`
 - `GITHUB_BRANCH`: e.g. `main`
 
