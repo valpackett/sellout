@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 from hashlib import sha1, sha256
 from base64 import urlsafe_b64decode, b64encode
 from secrets import token_urlsafe
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
+from rfc3986 import uri_reference
 from dotenv import load_dotenv
 from argon2 import PasswordHasher, exceptions as argonerr
 from cryptography.hazmat.primitives import constant_time
@@ -290,19 +291,17 @@ class Authorization(HTTPEndpoint):
             return autherr(request, "redirect_uri MUST exist")
         if not "state" in request.query_params:
             return autherr(request, "state MUST exist")
-        client_id = None
-        try:
-            client_id = urlparse(request.query_params.get("client_id"))
-        except ValueError:
+        client_id = uri_reference(request.query_params.get("client_id")).normalize()
+        if not client_id.is_valid(require_scheme=True, require_authority=True):
             return autherr(request, "client_id MUST be a valid URL")
-        redirect_uri = None
-        try:
-            redirect_uri = urlparse(request.query_params.get("redirect_uri"))
-        except ValueError:
+        redirect_uri = uri_reference(
+            request.query_params.get("redirect_uri")
+        ).normalize()
+        if not redirect_uri.is_valid(require_scheme=True, require_authority=True):
             return autherr(request, "redirect_uri MUST be a valid URL")
         if (
             client_id.scheme != redirect_uri.scheme
-            or client_id.netloc != redirect_uri.netloc
+            or client_id.authority != redirect_uri.authority
         ):
             # TODO allow things linked by rel=redirect_uri
             return autherr(
@@ -394,9 +393,12 @@ async def allow(request: Request) -> Response:
         "scopes": scopes,
         "host": request.headers["host"],
     }
-    redir_sep = "?" if urlparse(form["redirect_uri"]).query == "" else "&"
-    redir_qs = urlencode({"code": code, "state": form["state"]})
-    redir_dest = form["redirect_uri"] + redir_sep + redir_qs
+    redir_uri = uri_reference(form["redirect_uri"]).normalize()
+    redir_dest = redir_uri.copy_with(
+        query=(redir_uri.query or "")
+        + ("" if not redir_uri.query else "&")
+        + urlencode({"code": code, "state": form["state"]})
+    ).unsplit()
     async with AsyncClient() as h:
         await db_table(h, "auth").put_item(data)
     return RedirectResponse(url=redir_dest, status_code=303)
@@ -498,8 +500,8 @@ async def delete_post(h, path: str, post_sha: str):
 
 
 def url2path(request: Request, url: str) -> str:
-    parts = urlparse(url)
-    if parts.netloc != request.headers["host"] and not request.headers[
+    parts = uri_reference(url)
+    if parts.authority != request.headers["host"] and not request.headers[
         "host"
     ].startswith("127.0.0.1"):
         raise DataError(
