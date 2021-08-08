@@ -38,11 +38,11 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.datastructures import Headers, MutableHeaders, FormData, UploadFile
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
-from aioaws.s3 import S3Client, S3Config
 from aiodynamo.client import Client as DbClient
 from aiodynamo.credentials import Credentials as DbCreds
 from aiodynamo.errors import ItemNotFound
 from aiodynamo.http.httpx import HTTPX
+from httpx_auth import AWS4Auth
 from gidgethub.httpx import GitHubAPI
 from httpx import AsyncClient
 
@@ -513,13 +513,41 @@ def url2path(request: Request, url: str) -> str:
 
 
 async def upload_file(file: UploadFile) -> str:
+    # can't stream on Lambda anyway heh
     cont = await file.read()
+    assert isinstance(cont, bytes)
     base, ext = os.path.splitext(file.filename)
     name = sha256(cont).hexdigest()[:6] + "_" + slugify(base) + ext
-    async with AsyncClient(timeout=10.0) as h:
+    async with AsyncClient() as h:
         key = await DbCreds.auto().get_key(HTTPX(h))
-        s3 = S3Client(h, S3Config(key.id, key.secret, aws_region, media_bucket))
-        await s3.upload(media_prefix + name, cont, content_type=file.content_type)
+        assert key != None
+        auth = AWS4Auth(
+            access_id=key.id,
+            secret_key=key.secret,
+            security_token=key.token,
+            region=aws_region,
+            service="s3",
+        )
+        resp = await h.put(
+            "https://{}.s3.amazonaws.com/{}{}".format(media_bucket, media_prefix, name),
+            auth=auth,
+            headers={
+                "Content-Type": file.content_type,
+                "Content-Length": str(len(cont)),
+                "Content-Disposition": "inline",
+                "Cache-Control": "public, max-age=31536000, immutable",
+            },
+            content=cont,
+        )
+        print(resp.content)
+        if resp.status_code > 300:
+            raise DataError(
+                500,
+                {
+                    "error": "server_error",
+                    "error_description": "S3 error {}".format(resp.status_code),
+                },
+            )
     return media_url + name
 
 
