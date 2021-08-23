@@ -568,6 +568,8 @@ def post2json(post: Post) -> MfObj:
         props[k.replace("_", "-")] = v
     if "title" in fm:
         props["name"] = [fm["title"]]
+    if "description" in fm:
+        props["summary"] = [fm["description"]]
     if "date" in fm:
         if not isinstance(fm["date"], datetime):
             fm["date"] = datetime.fromisoformat(fm["date"])
@@ -593,6 +595,8 @@ def json2post_inner(post: Post, props: MfProps, add_mode: bool) -> Post:
         # TODO: check that these recognized ones are string valued
         if k == "name":
             fm["title"] = v[0]
+        elif k == "summary":
+            fm["description"] = v[0]
         elif k == "published":
             fm["date"] = datetime.fromisoformat(v[0])
         elif k == "updated":
