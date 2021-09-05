@@ -5,7 +5,7 @@ import functools
 import mimetypes
 import tomlkit
 from typing import Any, Tuple, List, Iterable, Mapping, TypedDict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from hashlib import sha1, sha256
 from base64 import urlsafe_b64decode, b64encode
 from secrets import token_urlsafe
@@ -572,12 +572,12 @@ def post2json(post: Post) -> MfObj:
         props["summary"] = [fm["description"]]
     if "date" in fm:
         if not isinstance(fm["date"], datetime):
-            fm["date"] = datetime.fromisoformat(fm["date"])
-        props["published"] = [fm["date"].isoformat()]
+            fm["date"] = datetime.fromisoformat(fm["date"].replace('Z', '+00:00'))
+        props["published"] = [fm["date"].isoformat(timespec='seconds')]
     if "updated" in fm:
         if not isinstance(fm["updated"], datetime):
-            fm["updated"] = datetime.fromisoformat(fm["updated"])
-        props["updated"] = [fm["updated"].isoformat()]
+            fm["updated"] = datetime.fromisoformat(fm["updated"].replace('Z', '+00:00'))
+        props["updated"] = [fm["updated"].isoformat(timespec='seconds')]
     if "taxonomies" in fm and "tag" in fm["taxonomies"]:
         props["category"] = fm["taxonomies"]["tag"]
     if len(content_text.strip()) > 0:
@@ -598,9 +598,9 @@ def json2post_inner(post: Post, props: MfProps, add_mode: bool) -> Post:
         elif k == "summary":
             fm["description"] = v[0]
         elif k == "published":
-            fm["date"] = datetime.fromisoformat(v[0])
+            fm["date"] = datetime.fromisoformat(v[0].replace('Z', '+00:00'))
         elif k == "updated":
-            fm["updated"] = datetime.fromisoformat(v[0])
+            fm["updated"] = datetime.fromisoformat(v[0].replace('Z', '+00:00'))
         elif k == "category":
             if "taxonomies" not in fm:
                 fm["taxonomies"] = {}
@@ -659,7 +659,7 @@ async def micropub_create(request: Request, data: dict) -> Response:
     slug = data.get("mp-slug")
     (fm, content_text) = json2post(check_json(data))
     if not "date" in fm:
-        fm["date"] = datetime.now()
+        fm["date"] = datetime.now(timezone.utc).replace(microsecond=0)
     if "bearer_data" in request.scope and "client_id" in request.scope["bearer_data"]:
         if not "extra" in fm:
             fm["extra"] = {}
@@ -764,6 +764,7 @@ async def micropub_update(request: Request, data: dict) -> Response:
             post = delete_props(post, data["delete"])
         if "delete" in data and isinstance(data["delete"], dict):
             post = delete_vals(post, data["delete"])
+        post[0]["updated"] = datetime.now(timezone.utc).replace(microsecond=0)
         await put_post(h, path, post, post_sha=sha)
     return Response(
         None,
