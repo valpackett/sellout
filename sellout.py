@@ -624,6 +624,8 @@ def json2post_inner(post: Post, props: MfProps, add_mode: bool) -> Post:
                         "error_description": "content must be a string or an object with a 'text', 'value', 'markdown' or 'html' key",
                     },
                 )
+        elif k == "url":
+            pass # just don't
         else:
             if "extra" not in fm:
                 fm["extra"] = {}
